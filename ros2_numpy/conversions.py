@@ -9,6 +9,35 @@ from ackermann_msgs.msg import AckermannDriveStamped
 import math
 import warnings
 import time 
+from builtin_interfaces.msg import Time as TimeMsg
+import rclpy
+
+def get_ros_timestamp(timestamp = None) -> TimeMsg:
+    """
+    Ensures a ROS timestamp message (builtin_interfaces.msg.Time) is returned.
+
+    This helper function handles different possible inputs for a timestamp and
+    returns the appropriate message object ready to be assigned to a header stamp.
+
+    Args:
+        timestamp_input: An optional timestamp. Can be:
+                         - None: The current ROS time (Clock().now()) will be used.
+                         - rclpy.time.Time: The object will be converted using .to_msg().
+                         - builtin_interfaces.msg.Time: The object will be returned directly.
+                         - Any other type: Defaults to using the current ROS time.
+
+    Returns:
+        A builtin_interfaces.msg.Time message object suitable for msg.header.stamp.
+    """
+    if isinstance(timestamp, rclpy.time.Time):
+        # Input is an rclpy Time object, convert it to a message
+        return timestamp.to_msg()
+    elif isinstance(timestamp, TimeMsg):
+        # Input is already a Time message object, return it directly
+        return timestamp
+    else:
+        # Input is None or an unexpected type, default to current time
+        return Clock().now().to_msg()
 
 def get_timestamp_unix(msg):
     """
@@ -105,7 +134,7 @@ def np_to_image(image, timestamp=None):
     ros_image.data = image.tobytes()
     
     # Set timestamp
-    ros_image.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    ros_image.header.stamp = get_ros_timestamp(timestamp)
     
     return ros_image
 
@@ -116,7 +145,7 @@ def compressedimage_to_np(msg):
 
 def np_to_compressedimage(image, timestamp=None):
     ros_image = CompressedImage()
-    ros_image.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    ros_image.header.stamp = get_ros_timestamp(timestamp)
     ros_image.format = "jpeg"
     ros_image.data = np.array(cv2.imencode('.jpg', image)[1]).tobytes()
     return ros_image
@@ -286,7 +315,7 @@ def to_ackermann(speed, steering_angle, timestamp=None):
         An ackermann_msgs.msg.AckermannDriveStamped message populated with the provided data.
     """
     msg = AckermannDriveStamped()
-    msg.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    msg.header.stamp = get_ros_timestamp(timestamp)
     msg.drive.speed = speed
     msg.drive.steering_angle = steering_angle
     return msg
@@ -343,7 +372,7 @@ def np_to_pose(point, yaw_angle, frame_id='base_link', timestamp=None):
     msg = PoseStamped()
 
     # Handle timestamp
-    msg.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    msg.header.stamp = get_ros_timestamp(timestamp)
 
     # Set frame ID
     msg.header.frame_id = frame_id
@@ -393,7 +422,7 @@ def np_to_path(waypoints, frame_id='base_link', timestamp=None):
         raise ValueError("Waypoints should have 3 columns: x, y, and theta.")
 
     path_msg = Path()
-    path_msg.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    path_msg.header.stamp = get_ros_timestamp(timestamp)
     path_msg.header.frame_id = frame_id
 
     for point in waypoints:
@@ -441,7 +470,7 @@ def np_to_magneticfield(array, frame_id="base_link", timestamp=None):
 
     msg = MagneticField()
     msg.header.frame_id = frame_id
-    msg.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    msg.header.stamp = get_ros_timestamp(timestamp)
     msg.magnetic_field.x = float(array[0])
     msg.magnetic_field.y = float(array[1])
     msg.magnetic_field.z = float(array[2])
