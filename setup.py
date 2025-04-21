@@ -8,7 +8,6 @@ setup(
         'numpy',  # Add your dependencies here
         'opencv-python',
         'rclpy',
-        'cv_bridge',
         'sensor_msgs',
         'nav_msgs',
         'geometry_msgs',
