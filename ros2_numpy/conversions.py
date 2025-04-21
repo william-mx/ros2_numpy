@@ -338,10 +338,10 @@ def pose_to_np(msg):
         - The yaw angle (rotation around the Z-axis) in radians.
     """
     # Extract position
-    point = np.array([msg.position.x, msg.position.y, msg.position.z])
+    point = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
 
     # Extract orientation and convert to yaw angle
-    quaternion = msg.orientation
+    quaternion = msg.pose.orientation
     yaw_angle = quaternion_to_yaw(quaternion)  # Use the helper function
 
     return point, yaw_angle, get_timestamp_unix(msg)
