@@ -1,18 +1,39 @@
-import rclpy
 from rclpy.clock import Clock
-from rclpy.node import Node
 import numpy as np
 import cv2
 import struct
-from cv_bridge import CvBridge
-from sensor_msgs.msg import Image, CompressedImage, Imu, PointCloud2, LaserScan, MagneticField, PointField
+from sensor_msgs.msg import Image, CompressedImage, Imu, PointCloud2, MagneticField, PointField
 from nav_msgs.msg import Path
-from geometry_msgs.msg import Pose, PoseStamped, Quaternion
+from geometry_msgs.msg import PoseStamped, Quaternion
 from ackermann_msgs.msg import AckermannDriveStamped
-from std_msgs.msg import MultiArrayLayout, MultiArrayDimension, Float32MultiArray
-from std_msgs.msg import Header
 import math
+import warnings
+import time 
 
+def get_timestamp_unix(msg):
+    """
+    Extracts the Unix timestamp (seconds since epoch) from a message header's stamp.
+    If the message does not have the expected header and stamp attributes,
+    it logs a warning and returns the current ROS time as a Unix timestamp.
+
+    Args:
+        msg (object): A message object with a 'header' attribute containing a 'stamp'
+                      attribute.
+
+    Returns:
+        float: The Unix timestamp in seconds.  Returns the current ROS time
+               as a Unix timestamp if the input message is invalid.
+    """
+    try:
+        timestamp_ros = msg.header.stamp
+        timestamp_unix = timestamp_ros.to_sec()
+        return timestamp_unix
+    except AttributeError:
+        warnings.warn("Message does not have a valid header.stamp. Returning current system time.")
+        timestamp_unix = time.time()
+        return timestamp_unix
+    
+# --- Orientation ---
 def quaternion_to_yaw(quaternion):
     """
     Converts a ROS Quaternion message to a yaw angle (rotation around Z-axis).
@@ -59,23 +80,33 @@ def yaw_to_quaternion(yaw_angle):
     quaternion.w = np.cos(yaw_angle / 2.0)
     return quaternion
 
-def get_timestamp_unix(msg):
-    try:
-        timestamp_ros = msg.header.stamp
-        timestamp_unix = timestamp_ros.to_sec()
-        return timestamp_unix
-    except AttributeError:
-        return None
-    
+   
 # --- Image ---
 def image_to_np(msg):
     image = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
     return image, get_timestamp_unix(msg)
 
 def np_to_image(image, timestamp=None):
-    bridge = CvBridge()
-    ros_image = bridge.cv2_to_imgmsg(image, encoding="bgr8")
+    """Convert a numpy image to a ROS Image message without using CvBridge."""
+    
+    # Create an Image message
+    ros_image = Image()
+    
+    # Set the encoding to bgr8
+    ros_image.encoding = 'bgr8'
+    
+    # Set dimensions
+    height, width, channels = image.shape
+    ros_image.height = height
+    ros_image.width = width
+    
+    # Set step (row stride in bytes) and data
+    ros_image.step = width * channels
+    ros_image.data = image.tobytes()
+    
+    # Set timestamp
     ros_image.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    
     return ros_image
 
 # --- CompressedImage ---
@@ -91,22 +122,63 @@ def np_to_compressedimage(image, timestamp=None):
     return ros_image
 
 # --- MultiArray ---
-def multiarray_to_np(msg):
-    pass
+def multiarray_to_np(msg, dtype=np.float32):
+    """Converts a MultiArray message to a flat NumPy array (shape N,).
 
-def np_to_multiarray(array, dtype=np.float32):
-    pass
+    Args:
+        msg (std_msgs.msg.MultiArray): The input MultiArray message
+                                       (e.g., Float32MultiArray, Int16MultiArray, etc.).
+
+    Returns:
+        numpy.ndarray: The flattened NumPy array.
+    """
+    return np.array(msg.data, dtype=dtype), get_timestamp_unix(msg)
 
 # --- Imu ---
 def imu_to_np(msg):
-    pass
+    """Converts an Imu message to a NumPy array (excluding orientation).
 
-def np_to_imu(array):
-    pass
+    Args:
+        msg (Imu): The input Imu message.
+
+    Returns:
+        numpy.ndarray: A NumPy array containing linear acceleration (x, y, z)
+                       and angular velocity (x, y, z). The shape of the array is (6,).
+    """
+    angular_velocity = msg.angular_velocity
+    linear_acceleration = msg.linear_acceleration
+    return np.array([linear_acceleration.x, linear_acceleration.y, linear_acceleration.z,
+                     angular_velocity.x, angular_velocity.y, angular_velocity.z])
+
+def np_to_imu(array, frame_id='base_link', timestamp=None):
+    """Converts a NumPy array to an Imu message (excluding orientation).
+
+    Args:
+        array (numpy.ndarray): A NumPy array of shape (6,) containing
+                               linear acceleration (x, y, z) and angular velocity (x, y, z)
+                               in that order.
+        frame_id (str, optional): The frame ID for the Imu message. Defaults to 'base_link'.
+        timestamp (rclpy.time.Time, optional): The timestamp for the Imu message.
+                                               If None, the current time is used. Defaults to None.
+
+    Returns:
+        Imu: The converted Imu message.
+    """
+    msg = Imu()
+    msg.header.frame_id = frame_id
+    msg.header.stamp = timestamp.to_msg() if timestamp is not None else Clock().now().to_msg()
+
+    msg.linear_acceleration.x = float(array[0])
+    msg.linear_acceleration.y = float(array[1])
+    msg.linear_acceleration.z = float(array[2])
+
+    msg.angular_velocity.x = float(array[3])
+    msg.angular_velocity.y = float(array[4])
+    msg.angular_velocity.z = float(array[5])
+
+    return msg
 
 # --- PointCloud2 ---
-def pointcloud_to_np(msg):
-    pass
 
 def np_to_pointcloud(points, frame_id='base_link', timestamp=None):
     """
@@ -120,45 +192,99 @@ def np_to_pointcloud(points, frame_id='base_link', timestamp=None):
     if points.shape[1] == 2:
         points = np.hstack((points, np.zeros((points.shape[0], 1))))
 
-    pc_msg = PointCloud2()
-    pc_msg.header.stamp = timestamp.to_msg() if timestamp is not None else Clock().now().to_msg()
-    pc_msg.header.frame_id = frame_id
+    msg = PointCloud2()
+    msg.header.stamp = timestamp.to_msg() if timestamp is not None else Clock().now().to_msg()
+    msg.header.frame_id = frame_id
 
-    pc_msg.fields = [
+    msg.fields = [
         PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
         PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
         PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1)
     ]
-    pc_msg.is_bigendian = False
-    pc_msg.point_step = 12
-    pc_msg.is_dense = True
+    msg.is_bigendian = False  # Indicates that the data is stored in little-endian byte order.
+    msg.point_step = 12       # Specifies that each point in the data occupies 12 bytes.
+    msg.is_dense = True       # Confirms that there are no invalid or missing points in the data.
 
     point_data = bytearray()
     for point in points:
         point_data.extend(struct.pack('fff', point[0], point[1], point[2]))
 
-    pc_msg.data = bytes(point_data)
-    pc_msg.row_step = pc_msg.point_step * points.shape[0]
-    pc_msg.height = 1
-    pc_msg.width = points.shape[0]
+    msg.data = bytes(point_data)
+    msg.row_step = msg.point_step * points.shape[0]
+    msg.height = 1
+    msg.width = points.shape[0]
 
-    return pc_msg
+    return msg
 
 # --- LaserScan ---
-def scan_to_np(msg):
-    pass
+def scan_to_np(msg) -> np.ndarray:
+    """
+    Converts LaserScan msg to [x, y, intensity] NumPy array.
 
-def np_to_scan(array, frame_id="laser_frame", angle_min=0.0, angle_max=6.28318530718, angle_increment=0.01, time_increment=0.0, scan_time=0.0, range_min=0.0, range_max=10.0):
-    pass
+    Filters out points with non-finite (inf, -inf, NaN) ranges.
+    Assumes valid inputs (matching sizes, non-empty).
 
+    Args:
+        msg: sensor_msgs.msg.LaserScan message.
+
+    Returns:
+        np.ndarray: Nx3 array [x, y, intensity] or (0, 3) if no valid points.
+    """
+    ranges_np = np.array(msg.ranges, dtype=np.float32) # Get ranges array
+    intensities_np = np.array(msg.intensities, dtype=np.float32) # Get intensities array
+
+    angles_np = msg.angle_min + np.arange(len(ranges_np)) * msg.angle_increment # Calculate angle for each range
+
+    valid_mask = np.isfinite(ranges_np) # Create mask for finite ranges only
+
+    # Apply mask to all relevant arrays
+    valid_ranges = ranges_np[valid_mask]
+    valid_angles = angles_np[valid_mask]
+    valid_intensities = intensities_np[valid_mask]
+
+    if valid_ranges.size == 0: # Check if any points remain
+        return np.empty((0, 3), dtype=np.float32) # Return empty if no valid points
+
+    # Calculate x, y coordinates for valid points
+    x_coords = valid_ranges * np.cos(valid_angles)
+    y_coords = valid_ranges * np.sin(valid_angles)
+
+    # Stack [x, y, intensity] columns into final array
+    pointcloud_xyi = np.column_stack((x_coords, y_coords, valid_intensities)).astype(np.float32)
+
+    return pointcloud_xyi, get_timestamp_unix(msg)
 
 # --- AckermannDriveStamped ---
 def from_ackermann(msg):
+    """
+    Extracts speed, steering angle, and Unix timestamp from an AckermannDriveStamped message.
+
+    Args:
+        msg: The input ackermann_msgs.msg.AckermannDriveStamped message.
+
+    Returns:
+        A tuple containing:
+        - speed (float): Longitudinal speed in m/s.
+        - steering_angle (float): Steering angle in radians.
+        - timestamp (float): Timestamp of the message as Unix time (seconds).
+    """ 
     speed = msg.drive.speed = speed
     steering_angle = msg.drive.steering_angle
     return speed, steering_angle, get_timestamp_unix(msg)
 
 def to_ackermann(speed, steering_angle, timestamp=None):
+    """
+    Creates an AckermannDriveStamped message from speed, steering angle, and an optional timestamp.
+
+    Args:
+        speed: The desired longitudinal speed (m/s).
+        steering_angle: The desired steering angle (radians).
+        timestamp: An optional rclpy.time.Time object for the header stamp.
+                   If None, the current ROS time is used.
+
+    Returns:
+        An ackermann_msgs.msg.AckermannDriveStamped message populated with the provided data.
+    """
     msg = AckermannDriveStamped()
     msg.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
     msg.drive.speed = speed
@@ -167,7 +293,29 @@ def to_ackermann(speed, steering_angle, timestamp=None):
 
 # --- Pose ---
 def pose_to_np(msg):
-    pass
+    """
+    Converts a ROS Pose message to a NumPy array and extracts the yaw angle.
+
+    Parameters
+    ----------
+    msg : geometry_msgs.msg.Pose
+        The input ROS Pose message.
+
+    Returns
+    -------
+    tuple (numpy.ndarray, float):
+        A tuple containing:
+        - A NumPy array of shape (3,) representing the x, y, and z coordinates of the pose.
+        - The yaw angle (rotation around the Z-axis) in radians.
+    """
+    # Extract position
+    point = np.array([msg.position.x, msg.position.y, msg.position.z])
+
+    # Extract orientation and convert to yaw angle
+    quaternion = msg.orientation
+    yaw_angle = quaternion_to_yaw(quaternion)  # Use the helper function
+
+    return point, yaw_angle, get_timestamp_unix(msg)
 
 def np_to_pose(point, yaw_angle, frame_id='base_link', timestamp=None):
     """
@@ -192,52 +340,48 @@ def np_to_pose(point, yaw_angle, frame_id='base_link', timestamp=None):
     geometry_msgs.msg.PoseStamped
         A ROS PoseStamped message representing the 3D point and orientation.
     """
-    pose_stamped = PoseStamped()
+    msg = PoseStamped()
 
     # Handle timestamp
-    pose_stamped.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    msg.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
 
     # Set frame ID
-    pose_stamped.header.frame_id = frame_id
+    msg.header.frame_id = frame_id
 
     # Set position
-    pose_stamped.pose.position.x = float(point[0])
-    pose_stamped.pose.position.y = float(point[1])
-    pose_stamped.pose.position.z = float(point[2]) if len(point) > 2 else 0.0
+    msg.pose.position.x = float(point[0])
+    msg.pose.position.y = float(point[1])
+    msg.pose.position.z = float(point[2]) if len(point) > 2 else 0.0
 
     # Set orientation using the helper function
-    pose_stamped.pose.orientation = yaw_to_quaternion(yaw_angle)
+    msg.pose.orientation = yaw_to_quaternion(yaw_angle)
 
-    return pose_stamped
+    return msg
 
 # --- Path ---
-def pose_to_np(msg):
-    """
-    Converts a ROS Pose message to a NumPy array and extracts the yaw angle.
-
-    Parameters
-    ----------
-    msg : geometry_msgs.msg.Pose
-        The input ROS Pose message.
-
-    Returns
-    -------
-    tuple (numpy.ndarray, float):
-        A tuple containing:
-        - A NumPy array of shape (3,) representing the x, y, and z coordinates of the pose.
-        - The yaw angle (rotation around the Z-axis) in radians.
-    """
-    # Extract position
-    point = np.array([msg.position.x, msg.position.y, msg.position.z])
-
-    # Extract orientation and convert to yaw angle
-    quaternion = msg.orientation
-    yaw_angle = quaternion_to_yaw(quaternion)  # Use the helper function
-
-    return point, yaw_angle
-
 def np_to_path(waypoints, frame_id='base_link', timestamp=None):
+    """
+    Converts a list or NumPy array of waypoints into a nav_msgs/Path message.
 
+    Each waypoint should consist of [x, y, theta], where x and y are coordinates
+    and theta is the orientation (yaw) in radians.
+
+    Args:
+        waypoints: A NumPy array or list-like structure of shape (N, 3)
+                   representing N waypoints as [x, y, theta]. A single waypoint
+                   can also be provided as a 1D array or list of length 3.
+        frame_id: The coordinate frame ID to set in the Path header.
+                  Defaults to 'base_link'.
+        timestamp: An optional rclpy.time.Time object for the Path header stamp.
+                   If None, the current ROS time (Clock().now()) is used.
+
+    Returns:
+        A nav_msgs.msg.Path message populated with poses derived from the waypoints.
+
+    Raises:
+        ValueError: If the input waypoints do not result in an Nx3 shape
+                    after conversion and reshaping (for single waypoint input).
+    """
     # Ensure waypoints is a numpy array.
     waypoints = np.array(waypoints)
 
@@ -261,79 +405,45 @@ def np_to_path(waypoints, frame_id='base_link', timestamp=None):
 
 # --- MagneticField ---
 def magneticfield_to_np(msg):
-    pass
+    """
+    Converts a sensor_msgs/MagneticField message to a NumPy array.
 
-def np_to_magneticfield(array, frame_id="sensor_frame"):
-    pass
+    Args:
+        msg (sensor_msgs.msg.MagneticField): The MagneticField message to convert.
 
-class ConversionPublisherNode(Node):
-    def __init__(self):
-        super().__init__('conversion_publisher_node')
-        self.bridge = CvBridge()
-        self.time_source = self.get_clock()  # Use the node's clock
-        self.timestamp = self.time_source.now()  # Create a timestamp # rclpy.time.Time
-        # bultin_interfaces.msg._time.Time
+    Returns:
+        numpy.ndarray: A NumPy array of shape (3,) containing the magnetic field
+                       values (x, y, z). Returns None if the input is None.
+    """
+    data = np.array([msg.magnetic_field.x, msg.magnetic_field.y, msg.magnetic_field.z])
+    
+    return data, get_timestamp_unix(msg)
 
-        # --- Publishers ---
-        self.image_pub = self.create_publisher(Image, '/camera/color/image_raw', 10)
-        self.compressed_image_pub = self.create_publisher(CompressedImage, '/camera/color/image_jpeg', 10)
-        self.multiarray_pub = self.create_publisher(Float32MultiArray, 'multiarray_topic', 10)
-        self.pointcloud_pub = self.create_publisher(PointCloud2, '/scan', 10)
-        self.ackermann_pub = self.create_publisher(AckermannDriveStamped, '/rc/ackermann_cmd', 10)
-        self.pose_pub = self.create_publisher(PoseStamped, 'pose', 10)
-        self.path_pub = self.create_publisher(Path, 'path', 10)
+def np_to_magneticfield(array, frame_id="base_link", timestamp=None):
+    """
+    Converts a NumPy array to a sensor_msgs/MagneticField message.
 
-        self.timer = self.create_timer(1.0, self.publish_data)  # Publish every second
+    Args:
+        array (numpy.ndarray): A NumPy array of shape (3,) containing the
+                               magnetic field values (x, y, z).
+        frame_id (str, optional): The frame_id to set in the message header.
+                                  Defaults to "base_link".
+        timestamp (rospy.Time or None, optional): The timestamp to set in the
+                                                 message header. If None, the
+                                                 current time is used. Defaults to None.
 
-    def publish_data(self):
-        """Publishes example data for each conversion."""
-        self.get_logger().info('Publishing data...')
+    Returns:
+        sensor_msgs.msg.MagneticField: The constructed MagneticField message.
+                                       Returns None if the input array is invalid.
+    """
+    if not isinstance(array, np.ndarray) or array.shape != (3,):
+        raise TypeError("Input array must be a NumPy array of shape (3,).")
 
-        # --- Image ---
-        image_np = np.zeros((100, 100, 3), dtype=np.uint8)  # Example image data
-        image_msg = np_to_image(image_np, timestamp=self.timestamp)
-        self.image_pub.publish(image_msg)
+    msg = MagneticField()
+    msg.header.frame_id = frame_id
+    msg.header.stamp = timestamp.to_msg() if timestamp else Clock().now().to_msg()
+    msg.magnetic_field.x = float(array[0])
+    msg.magnetic_field.y = float(array[1])
+    msg.magnetic_field.z = float(array[2])
+    return msg
 
-        # --- CompressedImage ---
-        compressed_image_msg = np_to_compressedimage(image_np, timestamp=self.timestamp)
-        self.compressed_image_pub.publish(compressed_image_msg)
-
-        # # --- MultiArray ---
-        # array_np = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)  # Example array
-        # multiarray_msg = np_to_multiarray(array_np)
-        # self.multiarray_pub.publish(multiarray_msg)
-
-        # --- PointCloud2 ---
-        points_np = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)  # Example points
-        pointcloud_msg = np_to_pointcloud(points_np, frame_id="base_link", timestamp=self.timestamp)
-        self.pointcloud_pub.publish(pointcloud_msg)
-
-        # --- AckermannDriveStamped ---
-        speed = 1.0
-        steering_angle = 0.2
-        ackermann_msg = to_ackermann(speed, steering_angle, timestamp=self.timestamp)
-        self.ackermann_pub.publish(ackermann_msg)
-
-        # --- Pose ---
-        point_np = np.array([1.0, 2.0])
-        yaw_angle = np.pi/4
-        pose_stamped_msg = np_to_pose(point_np, yaw_angle, frame_id="base_link", timestamp=self.timestamp)
-        self.pose_pub.publish(pose_stamped_msg)
-
-        # --- Path ---
-        waypoints_np = np.array([[1.0, 1.0, np.pi/6], [2.0, 2.0, np.pi/4], [3.0, 3.0, np.pi/2]])  # Example waypoints
-        path_msg = np_to_path(waypoints_np, frame_id="base_link", timestamp=self.timestamp)
-        self.path_pub.publish(path_msg)
-        self.get_logger().info('Published all messages')
-
-
-def main(args=None):
-    rclpy.init(args=args)
-    publisher_node = ConversionPublisherNode()
-    rclpy.spin(publisher_node)
-    publisher_node.destroy_node()
-    rclpy.shutdown()
-
-
-if __name__ == '__main__':
-    main()
