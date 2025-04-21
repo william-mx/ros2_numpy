@@ -7,7 +7,6 @@ setup(
     install_requires=[
         'numpy',  # Add your dependencies here
         'opencv-python',
-        'rclpy',
         'sensor_msgs',
         'nav_msgs',
         'geometry_msgs',
