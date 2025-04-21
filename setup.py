@@ -6,12 +6,7 @@ setup(
     packages=find_packages(),  # Automatically find your package(s)
     install_requires=[
         'numpy',  # Add your dependencies here
-        'opencv-python',
-        'sensor_msgs',
-        'nav_msgs',
-        'geometry_msgs',
-        'ackermann_msgs',
-        'std_msgs',
+        'opencv-python'
     ],
     author='William Engel',
     author_email='william.engel@mdynamix.de',
