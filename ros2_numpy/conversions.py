@@ -115,27 +115,62 @@ def image_to_np(msg):
     image = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
     return image, get_timestamp_unix(msg)
 
-def np_to_image(image, timestamp=None):
-    """Convert a numpy image to a ROS Image message without using CvBridge."""
-    
+def np_to_image(image: np.ndarray, timestamp=None) -> Image:
+    """
+    Convert a numpy image (BGR or Grayscale) to a ROS Image message.
+
+    Args:
+        image: The numpy array representing the image.
+               Expected shapes:
+               - H x W    (grayscale, mono8)
+               - H x W x 1 (grayscale, mono8)
+               - H x W x 3 (color, bgr8 assumed)
+        timestamp: Optional timestamp for the image header. If None,
+                   tries to get current time (best effort outside a node).
+
+    Returns:
+        A sensor_msgs.msg.Image message.
+
+    Raises:
+        ValueError: If the image shape is not supported.
+    """
     # Create an Image message
     ros_image = Image()
-    
-    # Set the encoding to bgr8
-    ros_image.encoding = 'bgr8'
-    
+
+    # Determine encoding and channel count based on image shape
+    if image.ndim == 2:
+        # Grayscale image (H x W)
+        height, width = image.shape
+        channels = 1
+        ros_image.encoding = 'mono8' # Standard 8-bit grayscale
+    elif image.ndim == 3:
+        # Image with channels (H x W x C)
+        height, width, channels = image.shape
+        if channels == 1:
+            # Grayscale image (H x W x 1)
+            ros_image.encoding = 'mono8'
+        elif channels == 3:
+            # Color image (H x W x 3), assume BGR
+            ros_image.encoding = 'bgr8'
+        else:
+            raise ValueError(f"Unsupported number of channels: {channels}. "
+                             "Expected 1 (mono8) or 3 (bgr8).")
+    else:
+        raise ValueError(f"Unsupported image dimensions: {image.ndim}. "
+                         "Expected 2 or 3 dimensions.")
+
     # Set dimensions
-    height, width, channels = image.shape
     ros_image.height = height
     ros_image.width = width
-    
+
     # Set step (row stride in bytes) and data
-    ros_image.step = width * channels
+    # itemsize is the size of one element (e.g., 1 byte for uint8)
+    ros_image.step = width * channels * image.itemsize
     ros_image.data = image.tobytes()
-    
+
     # Set timestamp
     ros_image.header.stamp = get_ros_timestamp(timestamp)
-    
+
     return ros_image
 
 # --- CompressedImage ---
