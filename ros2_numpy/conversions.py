@@ -211,8 +211,10 @@ def imu_to_np(msg):
     """
     angular_velocity = msg.angular_velocity
     linear_acceleration = msg.linear_acceleration
-    return np.array([linear_acceleration.x, linear_acceleration.y, linear_acceleration.z,
+    arr = np.array([linear_acceleration.x, linear_acceleration.y, linear_acceleration.z,
                      angular_velocity.x, angular_velocity.y, angular_velocity.z])
+    
+    return arr, get_timestamp_unix(msg)
 
 def np_to_imu(array, frame_id='base_link', timestamp=None):
     """Converts a NumPy array to an Imu message (excluding orientation).
