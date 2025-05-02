@@ -334,7 +334,7 @@ def from_ackermann(msg):
         - steering_angle (float): Steering angle in radians.
         - timestamp (float): Timestamp of the message as Unix time (seconds).
     """ 
-    speed = msg.drive.speed = speed
+    speed = msg.drive.speed
     steering_angle = msg.drive.steering_angle
     return speed, steering_angle, get_timestamp_unix(msg)
 
