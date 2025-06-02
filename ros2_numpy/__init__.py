@@ -15,6 +15,12 @@ from .conversions import (
     np_to_path,
     magneticfield_to_np,
     np_to_magneticfield,
+    from_label_info,
+    to_label_info,
+    to_detection3d,
+    to_detection3d_array,
+    from_detection3d,
+    from_detection3d_array
 )
 
 # NO __all__ list defined
