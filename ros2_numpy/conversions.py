@@ -1,4 +1,5 @@
 from rclpy.clock import Clock
+from builtin_interfaces.msg import Time as TimeMsg
 import numpy as np
 import cv2
 import struct
@@ -11,6 +12,11 @@ import warnings
 import time 
 from builtin_interfaces.msg import Time as TimeMsg
 import rclpy
+
+from vision_msgs.msg import Detection3D, ObjectHypothesisWithPose, BoundingBox3D, Detection3DArray, LabelInfo, VisionClass
+from geometry_msgs.msg import Pose, Point, Quaternion
+from std_msgs.msg import Header
+
 
 def get_ros_timestamp(timestamp = None) -> TimeMsg:
     """
@@ -35,6 +41,11 @@ def get_ros_timestamp(timestamp = None) -> TimeMsg:
     elif isinstance(timestamp, TimeMsg):
         # Input is already a Time message object, return it directly
         return timestamp
+    elif isinstance(timestamp, int):
+        # Convert Unix timestamp (in seconds) to ROS TimeMsg
+        sec = int(timestamp)
+        nanosec = int((timestamp - sec) * 1e9)
+        return TimeMsg(sec=sec, nanosec=nanosec)
     else:
         # Input is None or an unexpected type, default to current time
         return Clock().now().to_msg()
@@ -109,7 +120,190 @@ def yaw_to_quaternion(yaw_angle):
     quaternion.w = np.cos(yaw_angle / 2.0)
     return quaternion
 
-   
+# --- Label Info ---
+def from_label_info(label_info_msg: LabelInfo) -> dict:
+    """
+    Converts a vision_msgs/LabelInfo message to a Python dict.
+
+    Parameters
+    ----------
+    label_info_msg : vision_msgs.msg.LabelInfo
+        A ROS2 LabelInfo message containing class_map (list of VisionClass)
+
+    Returns
+    -------
+    dict
+        Mapping from class_id (int) to class_name (str)
+    """
+    return {vc.class_id: vc.class_name for vc in label_info_msg.class_map}
+
+def to_label_info(id_to_label: dict, timestamp=None, frame_id='base_link'):
+    """
+    Converts a sequential ID-to-label dict to a LabelInfo message.
+
+    Parameters
+    ----------
+    id_to_label : dict
+        Mapping from integer class IDs (e.g., 0, 1, 2) to label names.
+    timestamp : float, rclpy.time.Time, or None
+        Optional timestamp. If None, current time is used.
+    frame_id : str
+        Frame ID for the header.
+
+    Returns
+    -------
+    LabelInfo
+        A vision_msgs LabelInfo message.
+    """
+    msg = LabelInfo()
+
+    # Header using existing helper
+    msg.header = Header()
+    msg.header.stamp = get_ros_timestamp(timestamp)
+    msg.header.frame_id = frame_id
+
+    # Build class_map using VisionClass entries
+    msg.class_map = []
+    for id, label in id_to_label.items():
+        vc = VisionClass()
+        vc.class_id = id
+        vc.class_name = label
+        msg.class_map.append(vc)
+
+    return msg
+
+
+# --- Detection 3D ---
+def to_detection3d(label, score, x, y, z, timestamp=None, frame_id='base_link'):
+    """
+    Creates a Detection3D message from label, score, and 3D position.
+
+    Parameters
+    ----------
+    label : str
+        Class label (e.g., "car", "person").
+    score : float
+        Confidence score between 0 and 1.
+    x, y, z : float
+        3D position of the detected object.
+    timestamp : rclpy.time.Time, optional
+        Timestamp for the message. Uses current time if None.
+    frame_id : str
+        Frame ID for the detection (default: 'base_link').
+
+    Returns
+    -------
+    vision_msgs.msg.Detection3D
+        A Detection3D message ready to publish.
+    """
+    detection = Detection3D()
+
+    # Header
+    detection.header = Header()
+    detection.header.stamp = get_ros_timestamp(timestamp)
+    detection.header.frame_id = frame_id
+
+    # Hypothesis
+    hypothesis = ObjectHypothesisWithPose()
+    hypothesis.hypothesis.class_id = label
+    hypothesis.hypothesis.score = score
+
+    # Pose
+    pose_stamped = np_to_pose(np.array([x, y, z]), yaw_angle=0.0)
+    hypothesis.pose.pose = pose_stamped.pose
+
+    # Default bounding box
+    bbox = BoundingBox3D()
+    bbox.center = pose_stamped.pose
+    bbox.size.x = 1.0
+    bbox.size.y = 1.0
+    bbox.size.z = 1.0
+
+    # Fill detection message
+    detection.results.append(hypothesis)
+    detection.bbox = bbox
+
+    return detection
+
+def to_detection3d_array(detections: dict, timestamp=None, frame_id='base_link'):
+    """
+    Converts a dictionary of detections into a Detection3DArray using to_detection3d().
+
+    Parameters
+    ----------
+    detections : dict
+        Mapping from class ID to a list in the format [label:str, score:float, x:float, y:float, z:float].
+    timestamp : rclpy.time.Time or float, optional
+        Timestamp for the header. Uses current time if None.
+    frame_id : str
+        Frame ID for all detections.
+
+    Returns
+    -------
+    Detection3DArray
+        A ROS2 Detection3DArray message with populated detections.
+    """
+    array_msg = Detection3DArray()
+    array_msg.header = Header()
+    array_msg.header.stamp = get_ros_timestamp(timestamp)
+    array_msg.header.frame_id = frame_id
+
+    for _, (label, score, x, y, z) in detections.items():
+        detection = to_detection3d(
+            label=label,
+            score=score,
+            x=x,
+            y=y,
+            z=z,
+            timestamp=timestamp,
+            frame_id=frame_id
+        )
+        array_msg.detections.append(detection)
+
+    return array_msg
+
+
+def from_detection3d(detection):
+    """
+    Extracts label, score, and 3D position (x, y, z) from a Detection3D message.
+
+    Parameters
+    ----------
+    detection : vision_msgs.msg.Detection3D
+        A Detection3D message.
+
+    Returns
+    -------
+    list
+        A list in the format [label, score, x, y, z].
+    """
+    if not detection.results:
+        return [None, 0.0, 0.0, 0.0, 0.0]  # fallback if no results
+
+    result = detection.results[0]
+    label = result.hypothesis.class_id
+    score = result.hypothesis.score
+    pose = result.pose.pose.position
+
+    return [label, score, pose.x, pose.y, pose.z]
+
+def from_detection3d_array(msg):
+    """
+    Converts a Detection3DArray message into a list of [label, score, x, y, z] entries,
+    using the from_detection3d() helper for each Detection3D.
+
+    Parameters
+    ----------
+    msg : vision_msgs.msg.Detection3DArray
+        A Detection3DArray message containing multiple Detection3D objects.
+
+    Returns
+    -------
+    list of lists
+        Each inner list has the format [label, score, x, y, z].
+    """
+    return [from_detection3d(d) for d in msg.detections], get_timestamp_unix(msg)
+
 # --- Image ---
 def image_to_np(msg):
     image = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
@@ -232,7 +426,7 @@ def np_to_imu(array, frame_id='base_link', timestamp=None):
     """
     msg = Imu()
     msg.header.frame_id = frame_id
-    msg.header.stamp = timestamp.to_msg() if timestamp is not None else Clock().now().to_msg()
+    msg.header.stamp = get_ros_timestamp(timestamp)
 
     msg.linear_acceleration.x = float(array[0])
     msg.linear_acceleration.y = float(array[1])
@@ -259,7 +453,7 @@ def np_to_pointcloud(points, frame_id='base_link', timestamp=None):
         points = np.hstack((points, np.zeros((points.shape[0], 1))))
 
     msg = PointCloud2()
-    msg.header.stamp = timestamp.to_msg() if timestamp is not None else Clock().now().to_msg()
+    msg.header.stamp = get_ros_timestamp(timestamp)
     msg.header.frame_id = frame_id
 
     msg.fields = [
@@ -353,8 +547,8 @@ def to_ackermann(speed, steering_angle, timestamp=None):
     """
     msg = AckermannDriveStamped()
     msg.header.stamp = get_ros_timestamp(timestamp)
-    msg.drive.speed = speed
-    msg.drive.steering_angle = steering_angle
+    msg.drive.speed = float(speed)
+    msg.drive.steering_angle = float(steering_angle)
     return msg
 
 # --- Pose ---
@@ -512,4 +706,3 @@ def np_to_magneticfield(array, frame_id="base_link", timestamp=None):
     msg.magnetic_field.y = float(array[1])
     msg.magnetic_field.z = float(array[2])
     return msg
-
