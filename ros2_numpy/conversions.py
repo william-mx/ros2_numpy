@@ -1,21 +1,23 @@
-from rclpy.clock import Clock
-from builtin_interfaces.msg import Time as TimeMsg
-import numpy as np
-import cv2
-import struct
-from sensor_msgs.msg import Image, CompressedImage, Imu, PointCloud2, MagneticField, PointField
-from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped, Quaternion
-from ackermann_msgs.msg import AckermannDriveStamped
 import math
+import time
+import struct
 import warnings
-import time 
-from builtin_interfaces.msg import Time as TimeMsg
-import rclpy
 
-from vision_msgs.msg import Detection3D, ObjectHypothesisWithPose, BoundingBox3D, Detection3DArray, LabelInfo, VisionClass
-from geometry_msgs.msg import Pose, Point, Quaternion
+import cv2
+import rclpy
+import numpy as np
+
+from rclpy.clock import Clock
+
 from std_msgs.msg import Header
+from nav_msgs.msg import Path
+from ackermann_msgs.msg import AckermannDriveStamped
+from builtin_interfaces.msg import Time as TimeMsg
+
+from sensor_msgs.msg import Image, CompressedImage, Imu, PointCloud2, MagneticField, PointField
+from geometry_msgs.msg import Point, Pose, Quaternion, PointStamped, PoseStamped
+
+from vision_msgs.msg import Detection3D, Detection3DArray, ObjectHypothesisWithPose, BoundingBox3D, LabelInfo, VisionClass
 
 
 def get_ros_timestamp(timestamp = None) -> TimeMsg:
@@ -706,3 +708,52 @@ def np_to_magneticfield(array, frame_id="base_link", timestamp=None):
     msg.magnetic_field.y = float(array[1])
     msg.magnetic_field.z = float(array[2])
     return msg
+
+# --- PointStamped ---
+
+def np_to_point(point, frame_id='base_link', timestamp=None):
+    """
+    Converts a NumPy array representing a 3D point to a ROS PointStamped message.
+
+    Parameters
+    ----------
+    point : numpy.ndarray
+        A NumPy array of shape (3,) representing the x, y, and z coordinates of the point.
+    frame_id : str, optional
+        The frame ID for the PointStamped message header. Defaults to 'base_link'.
+    timestamp : rclpy.time.Time, optional
+        The timestamp for the message. If None, the current time is used.
+
+    Returns
+    -------
+    geometry_msgs.msg.PointStamped
+        A ROS PointStamped message representing the input point.
+    """
+    msg = PointStamped()
+    msg.header.stamp = get_ros_timestamp(timestamp)
+    msg.header.frame_id = frame_id
+    msg.point.x = float(point[0])
+    msg.point.y = float(point[1])
+    msg.point.z = float(point[2]) if len(point) > 2 else 0.0
+    return msg
+
+
+def point_to_np(msg):
+    """
+    Converts a ROS PointStamped message to a NumPy array and extracts the timestamp.
+
+    Parameters
+    ----------
+    msg : geometry_msgs.msg.PointStamped
+        The input PointStamped message.
+
+    Returns
+    -------
+    tuple (numpy.ndarray, float):
+        A tuple containing:
+        - A NumPy array of shape (3,) representing the x, y, and z coordinates of the point.
+        - The timestamp as a Unix float.
+    """
+    point = np.array([msg.point.x, msg.point.y, msg.point.z])
+    timestamp = get_timestamp_unix(msg)
+    return point, timestamp
