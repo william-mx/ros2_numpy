@@ -20,7 +20,9 @@ from .conversions import (
     to_detection3d,
     to_detection3d_array,
     from_detection3d,
-    from_detection3d_array
+    from_detection3d_array,
+    np_to_point,
+    point_to_np
 )
 
 # NO __all__ list defined
