@@ -209,14 +209,14 @@ def to_bbox2d(cx, cy, w, h):
     bbox.size_y = h
     return bbox
 
-def to_detection2d(label, score, cx, cy, w, h, timestamp=None, frame_id='camera_frame'):
+def to_detection2d(class_id, score, cx, cy, w, h, timestamp=None, frame_id='base_link'):
     """
-    Creates a Detection2D message from label, score, center and size.
+    Creates a Detection2D message from class_id, score, center and size.
 
     Parameters
     ----------
-    label : str
-        Class label.
+    class_id : int
+        Numeric class ID (e.g., 0 for 'person', 1 for 'car').
     score : float
         Detection confidence [0.0, 1.0].
     cx, cy : float
@@ -242,20 +242,21 @@ def to_detection2d(label, score, cx, cy, w, h, timestamp=None, frame_id='camera_
 
     # Hypothesis
     hypothesis = ObjectHypothesisWithPose()
-    hypothesis.hypothesis.class_id = label
+    hypothesis.hypothesis.class_id = str(class_id)  # Convert int to string
     hypothesis.hypothesis.score = score
     detection.results.append(hypothesis)
 
     return detection
 
-def to_detection2d_array(detections: dict, timestamp=None, frame_id='camera_frame'):
+
+def to_detection2d_array(detections: list, timestamp=None, frame_id='base_link'):
     """
-    Converts a dict of 2D detections to Detection2DArray.
+    Converts a list of 2D detections to a Detection2DArray message.
 
     Parameters
     ----------
-    detections : dict
-        {id: [label:str, score:float, cx:float, cy:float, w:float, h:float]}
+    detections : list
+        Each item is [label:str, score:float, cx:float, cy:float, w:float, h:float].
     timestamp : rclpy.time.Time or float, optional
         Timestamp.
     frame_id : str
@@ -269,7 +270,7 @@ def to_detection2d_array(detections: dict, timestamp=None, frame_id='camera_fram
     array_msg.header.stamp = get_ros_timestamp(timestamp)
     array_msg.header.frame_id = frame_id
 
-    for _, (label, score, cx, cy, w, h) in detections.items():
+    for label, score, cx, cy, w, h in detections:
         detection = to_detection2d(label, score, cx, cy, w, h, timestamp, frame_id)
         array_msg.detections.append(detection)
 
@@ -277,14 +278,14 @@ def to_detection2d_array(detections: dict, timestamp=None, frame_id='camera_fram
 
 
 # --- Detection 3D ---
-def to_detection3d(label, score, x, y, z, timestamp=None, frame_id='base_link'):
+def to_detection3d(class_id, score, x, y, z, timestamp=None, frame_id='base_link'):
     """
-    Creates a Detection3D message from label, score, and 3D position.
+    Creates a Detection3D message from class_id, score, and 3D position.
 
     Parameters
     ----------
-    label : str
-        Class label (e.g., "car", "person").
+    class_id : int
+        Numeric class ID (e.g., 0 for 'person', 1 for 'car').
     score : float
         Confidence score between 0 and 1.
     x, y, z : float
@@ -308,34 +309,34 @@ def to_detection3d(label, score, x, y, z, timestamp=None, frame_id='base_link'):
 
     # Hypothesis
     hypothesis = ObjectHypothesisWithPose()
-    hypothesis.hypothesis.class_id = label
+    hypothesis.hypothesis.class_id = str(class_id)  # ROS expects a string
     hypothesis.hypothesis.score = score
 
     # Pose
     pose_stamped = np_to_pose(np.array([x, y, z]), yaw_angle=0.0)
     hypothesis.pose.pose = pose_stamped.pose
 
-    # Default bounding box
+    # Bounding box
     bbox = BoundingBox3D()
     bbox.center = pose_stamped.pose
     bbox.size.x = 1.0
     bbox.size.y = 1.0
     bbox.size.z = 1.0
 
-    # Fill detection message
     detection.results.append(hypothesis)
     detection.bbox = bbox
 
     return detection
 
-def to_detection3d_array(detections: dict, timestamp=None, frame_id='base_link'):
+
+def to_detection3d_array(detections: list, timestamp=None, frame_id='base_link'):
     """
-    Converts a dictionary of detections into a Detection3DArray using to_detection3d().
+    Converts a list of 3D detections into a Detection3DArray.
 
     Parameters
     ----------
-    detections : dict
-        Mapping from class ID to a list in the format [label:str, score:float, x:float, y:float, z:float].
+    detections : list
+        List of [class_id:int, score:float, x:float, y:float, z:float].
     timestamp : rclpy.time.Time or float, optional
         Timestamp for the header. Uses current time if None.
     frame_id : str
@@ -344,16 +345,16 @@ def to_detection3d_array(detections: dict, timestamp=None, frame_id='base_link')
     Returns
     -------
     Detection3DArray
-        A ROS2 Detection3DArray message with populated detections.
+        A ROS2 Detection3DArray message.
     """
     array_msg = Detection3DArray()
     array_msg.header = Header()
     array_msg.header.stamp = get_ros_timestamp(timestamp)
     array_msg.header.frame_id = frame_id
 
-    for _, (label, score, x, y, z) in detections.items():
+    for class_id, score, x, y, z in detections:
         detection = to_detection3d(
-            label=label,
+            class_id=class_id,
             score=score,
             x=x,
             y=y,
@@ -368,27 +369,27 @@ def to_detection3d_array(detections: dict, timestamp=None, frame_id='base_link')
 
 def from_detection3d(detection):
     """
-    Extracts label, score, and 3D position (x, y, z) from a Detection3D message.
+    Extracts class_id, score, and 3D position (x, y, z) from a Detection3D message.
 
     Parameters
     ----------
     detection : vision_msgs.msg.Detection3D
-        A Detection3D message.
 
     Returns
     -------
     list
-        A list in the format [label, score, x, y, z].
+        [class_id:int, score:float, x:float, y:float, z:float]
     """
     if not detection.results:
-        return [None, 0.0, 0.0, 0.0, 0.0]  # fallback if no results
+        return [None, 0.0, 0.0, 0.0, 0.0]
 
     result = detection.results[0]
-    label = result.hypothesis.class_id
+    class_id = int(result.hypothesis.class_id)
     score = result.hypothesis.score
-    pose = result.pose.pose.position
+    pos = result.pose.pose.position
 
-    return [label, score, pose.x, pose.y, pose.z]
+    return [class_id, score, pos.x, pos.y, pos.z]
+
 
 def from_detection3d_array(msg):
     """
