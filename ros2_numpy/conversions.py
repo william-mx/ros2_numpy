@@ -275,7 +275,7 @@ def to_detection2d_array(detections: list, timestamp=None, frame_id='base_link')
 
 def from_detection2d(detection):
     """
-    Extracts label, score, and 2D bounding box center and size from a Detection2D message.
+    Extracts class_id, score, and 2D bounding box center and size from a Detection2D message.
 
     Parameters
     ----------
@@ -285,17 +285,17 @@ def from_detection2d(detection):
     Returns
     -------
     list
-        A list in the format [label, score, cx, cy, w, h].
+        A list in the format [class_id, score, cx, cy, w, h].
     """
     if not detection.results:
         return [None, 0.0, 0.0, 0.0, 0.0, 0.0]  # fallback if no results
 
     result = detection.results[0]
-    label = result.hypothesis.class_id
+    class_id = int(result.hypothesis.class_id)
     score = result.hypothesis.score
     bbox = detection.bbox
 
-    return [label, score, bbox.center.x, bbox.center.y, bbox.size_x, bbox.size_y]
+    return [class_id, score, bbox.center.x, bbox.center.y, bbox.size_x, bbox.size_y]
 
 
 def from_detection2d_array(msg):
