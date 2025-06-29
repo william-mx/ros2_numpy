@@ -19,7 +19,7 @@ from geometry_msgs.msg import Point, Pose, Quaternion, PointStamped, PoseStamped
 
 from vision_msgs.msg import (
     Detection3D, Detection3DArray, ObjectHypothesisWithPose, BoundingBox3D, LabelInfo, VisionClass,
-    Detection2D, Detection2DArray, BoundingBox2D
+    Detection2D, Detection2DArray, BoundingBox2D, Pose2D, Point2D
 )
 
 
@@ -181,30 +181,27 @@ def to_label_info(id_to_label: dict, timestamp=None, frame_id='base_link'):
 
 # --- Detection 2D ---
 
-def to_bbox2d(cx, cy, w, h):
+def to_bbox2d(cx, cy, w, h, theta=0.0):
     """
-    Creates a 2D bounding box message from center coordinates and size.
+    Creates a BoundingBox2D message with center and size.
 
     Parameters
     ----------
-    cx : float
-        X-coordinate of the bounding box center.
-    cy : float
-        Y-coordinate of the bounding box center.
-    w : float
-        Width of the bounding box.
-    h : float
-        Height of the bounding box.
+    cx, cy : float
+        Center coordinates of the bounding box.
+    w, h : float
+        Width and height of the bounding box.
+    theta : float, optional
+        Rotation in radians (default: 0.0).
 
     Returns
     -------
     BoundingBox2D
-        A populated BoundingBox2D message.
     """
-
     bbox = BoundingBox2D()
-    bbox.center.x = cx
-    bbox.center.y = cy
+    bbox.center = Pose2D()
+    bbox.center.position = Point2D(x=cx, y=cy)
+    bbox.center.theta = theta
     bbox.size_x = w
     bbox.size_y = h
     return bbox
@@ -316,7 +313,7 @@ def from_detection2d_array(msg):
         Each inner list has the format [label, score, cx, cy, w, h].
     """
     return [from_detection2d(d) for d in msg.detections], get_timestamp_unix(msg)
-    
+
 
 # --- Detection 3D ---
 def to_detection3d(class_id, score, x, y, z, timestamp=None, frame_id='base_link'):
