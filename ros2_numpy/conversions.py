@@ -276,6 +276,47 @@ def to_detection2d_array(detections: list, timestamp=None, frame_id='base_link')
 
     return array_msg
 
+def from_detection2d(detection):
+    """
+    Extracts label, score, and 2D bounding box center and size from a Detection2D message.
+
+    Parameters
+    ----------
+    detection : vision_msgs.msg.Detection2D
+        A Detection2D message.
+
+    Returns
+    -------
+    list
+        A list in the format [label, score, cx, cy, w, h].
+    """
+    if not detection.results:
+        return [None, 0.0, 0.0, 0.0, 0.0, 0.0]  # fallback if no results
+
+    result = detection.results[0]
+    label = result.hypothesis.class_id
+    score = result.hypothesis.score
+    bbox = detection.bbox
+
+    return [label, score, bbox.center.x, bbox.center.y, bbox.size_x, bbox.size_y]
+
+
+def from_detection2d_array(msg):
+    """
+    Converts a Detection2DArray message into a list of [label, score, cx, cy, w, h] entries.
+
+    Parameters
+    ----------
+    msg : vision_msgs.msg.Detection2DArray
+        A Detection2DArray message containing multiple Detection2D objects.
+
+    Returns
+    -------
+    list of lists
+        Each inner list has the format [label, score, cx, cy, w, h].
+    """
+    return [from_detection2d(d) for d in msg.detections], get_timestamp_unix(msg)
+    
 
 # --- Detection 3D ---
 def to_detection3d(class_id, score, x, y, z, timestamp=None, frame_id='base_link'):
