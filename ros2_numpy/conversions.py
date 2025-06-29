@@ -240,7 +240,7 @@ def to_detection2d(class_id, score, cx, cy, w, h, timestamp=None, frame_id='base
     # Hypothesis
     hypothesis = ObjectHypothesisWithPose()
     hypothesis.hypothesis.class_id = str(class_id)  # Convert int to string
-    hypothesis.hypothesis.score = score
+    hypothesis.hypothesis.score = float(score)
     detection.results.append(hypothesis)
 
     return detection
@@ -348,7 +348,7 @@ def to_detection3d(class_id, score, x, y, z, timestamp=None, frame_id='base_link
     # Hypothesis
     hypothesis = ObjectHypothesisWithPose()
     hypothesis.hypothesis.class_id = str(class_id)  # ROS expects a string
-    hypothesis.hypothesis.score = score
+    hypothesis.hypothesis.score = float(score)
 
     # Pose
     pose_stamped = np_to_pose(np.array([x, y, z]), yaw_angle=0.0)
