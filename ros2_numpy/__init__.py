@@ -22,7 +22,12 @@ from .conversions import (
     from_detection3d,
     from_detection3d_array,
     np_to_point,
-    point_to_np
+    point_to_np,
+    to_detection2d,
+    to_detection2d_array,
+    from_detection2d,
+    from_detection2d_array,
+    to_bbox2d
 )
 
 # NO __all__ list defined

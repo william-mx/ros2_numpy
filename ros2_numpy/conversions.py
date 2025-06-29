@@ -17,7 +17,10 @@ from builtin_interfaces.msg import Time as TimeMsg
 from sensor_msgs.msg import Image, CompressedImage, Imu, PointCloud2, MagneticField, PointField
 from geometry_msgs.msg import Point, Pose, Quaternion, PointStamped, PoseStamped
 
-from vision_msgs.msg import Detection3D, Detection3DArray, ObjectHypothesisWithPose, BoundingBox3D, LabelInfo, VisionClass
+from vision_msgs.msg import (
+    Detection3D, Detection3DArray, ObjectHypothesisWithPose, BoundingBox3D, LabelInfo, VisionClass,
+    Detection2D, Detection2DArray, BoundingBox2D
+)
 
 
 def get_ros_timestamp(timestamp = None) -> TimeMsg:
@@ -173,6 +176,104 @@ def to_label_info(id_to_label: dict, timestamp=None, frame_id='base_link'):
         msg.class_map.append(vc)
 
     return msg
+
+
+
+# --- Detection 2D ---
+
+def to_bbox2d(cx, cy, w, h):
+    """
+    Creates a 2D bounding box message from center coordinates and size.
+
+    Parameters
+    ----------
+    cx : float
+        X-coordinate of the bounding box center.
+    cy : float
+        Y-coordinate of the bounding box center.
+    w : float
+        Width of the bounding box.
+    h : float
+        Height of the bounding box.
+
+    Returns
+    -------
+    BoundingBox2D
+        A populated BoundingBox2D message.
+    """
+
+    bbox = BoundingBox2D()
+    bbox.center.x = cx
+    bbox.center.y = cy
+    bbox.size_x = w
+    bbox.size_y = h
+    return bbox
+
+def to_detection2d(label, score, cx, cy, w, h, timestamp=None, frame_id='camera_frame'):
+    """
+    Creates a Detection2D message from label, score, center and size.
+
+    Parameters
+    ----------
+    label : str
+        Class label.
+    score : float
+        Detection confidence [0.0, 1.0].
+    cx, cy : float
+        Center coordinates of the bounding box.
+    w, h : float
+        Width and height of the bounding box.
+    timestamp : rclpy.time.Time or float, optional
+        Timestamp.
+    frame_id : str
+        Frame of reference.
+
+    Returns
+    -------
+    Detection2D
+    """
+    detection = Detection2D()
+    detection.header = Header()
+    detection.header.stamp = get_ros_timestamp(timestamp)
+    detection.header.frame_id = frame_id
+
+    # Bounding box
+    detection.bbox = to_bbox2d(cx, cy, w, h)
+
+    # Hypothesis
+    hypothesis = ObjectHypothesisWithPose()
+    hypothesis.hypothesis.class_id = label
+    hypothesis.hypothesis.score = score
+    detection.results.append(hypothesis)
+
+    return detection
+
+def to_detection2d_array(detections: dict, timestamp=None, frame_id='camera_frame'):
+    """
+    Converts a dict of 2D detections to Detection2DArray.
+
+    Parameters
+    ----------
+    detections : dict
+        {id: [label:str, score:float, cx:float, cy:float, w:float, h:float]}
+    timestamp : rclpy.time.Time or float, optional
+        Timestamp.
+    frame_id : str
+        Frame for header.
+
+    Returns
+    -------
+    Detection2DArray
+    """
+    array_msg = Detection2DArray()
+    array_msg.header.stamp = get_ros_timestamp(timestamp)
+    array_msg.header.frame_id = frame_id
+
+    for _, (label, score, cx, cy, w, h) in detections.items():
+        detection = to_detection2d(label, score, cx, cy, w, h, timestamp, frame_id)
+        array_msg.detections.append(detection)
+
+    return array_msg
 
 
 # --- Detection 3D ---
