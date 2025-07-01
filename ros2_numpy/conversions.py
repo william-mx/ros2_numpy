@@ -295,7 +295,7 @@ def from_detection2d(detection):
     score = result.hypothesis.score
     bbox = detection.bbox
 
-    return [class_id, score, bbox.center.x, bbox.center.y, bbox.size_x, bbox.size_y]
+    return [class_id, score, bbox.center.position.x, bbox.center.position.y, bbox.size_x, bbox.size_y]
 
 
 def from_detection2d_array(msg):
