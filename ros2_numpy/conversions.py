@@ -46,7 +46,7 @@ def get_ros_timestamp(timestamp = None) -> TimeMsg:
     elif isinstance(timestamp, TimeMsg):
         # Input is already a Time message object, return it directly
         return timestamp
-    elif isinstance(timestamp, int):
+    elif isinstance(timestamp, float):
         # Convert Unix timestamp (in seconds) to ROS TimeMsg
         sec = int(timestamp)
         nanosec = int((timestamp - sec) * 1e9)
@@ -72,7 +72,7 @@ def get_timestamp_unix(msg):
     try:
         timestamp_ros = msg.header.stamp
         timestamp_unix = timestamp_ros.sec + 1e-9 * timestamp_ros.nanosec
-        return int(timestamp_unix)
+        return timestamp_unix
     except AttributeError:
         warnings.warn("Message does not have a valid header.stamp. Returning current system time.")
         timestamp_unix = time.time()
