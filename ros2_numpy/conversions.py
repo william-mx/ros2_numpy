@@ -71,7 +71,7 @@ def get_timestamp_unix(msg):
     """
     try:
         timestamp_ros = msg.header.stamp
-        timestamp_unix = timestamp_ros.to_sec()
+        timestamp_unix = timestamp_ros.sec + 1e-9 * timestamp_ros.nanosec
         return timestamp_unix
     except AttributeError:
         warnings.warn("Message does not have a valid header.stamp. Returning current system time.")
