@@ -897,3 +897,51 @@ def point_to_np(msg):
     point = np.array([msg.point.x, msg.point.y, msg.point.z])
     timestamp = get_timestamp_unix(msg)
     return point, timestamp
+
+
+# --- ImageMarker ---
+def pc_to_image_marker(points_2d: np.ndarray, frame_id: str = "base_link",
+                       timestamp=None, depth: np.ndarray = None, scale = 2.0) -> ImageMarker:
+    """
+    Converts a (N,2) NumPy array to a visualization_msgs/ImageMarker with type POINTS.
+
+    Parameters
+    ----------
+    points_2d : np.ndarray
+        (N, 2) array of x, y image coordinates.
+    frame_id : str
+        Frame ID for the marker (e.g., 'camera_frame').
+    timestamp : float or rclpy.time.Time
+        Timestamp to assign to the message.
+    depth : np.ndarray, optional
+        (N,) array used to color the points by depth.
+    scale : float, optional
+        Pixel size (diameter) of the rendered points. Default is 2.0.
+        
+    Returns
+    -------
+    ImageMarker
+        Marker message with all points.
+    """
+    marker = ImageMarker()
+    marker.header = Header()
+    marker.header.stamp = get_ros_timestamp(timestamp)
+    marker.header.frame_id = frame_id
+    marker.type = ImageMarker.POINTS
+    marker.scale = scale
+
+    for i, (x, y) in enumerate(points_2d):
+        pt = Point(x=float(x), y=float(y), z=0.0)
+        marker.points.append(pt)
+
+        if depth is not None:
+            val = float(depth[i])
+            d_norm = np.clip((val - np.min(depth)) / (np.ptp(depth) + 1e-5), 0.0, 1.0)
+            color = ColorRGBA(r=1 - d_norm, g=0.3, b=d_norm, a=0.9)
+            marker.outline_colors.append(color)
+
+    if not marker.outline_colors:
+        marker.outline_color = ColorRGBA(r=0.2, g=1.0, b=0.2, a=0.8)
+
+    return marker
+                           
