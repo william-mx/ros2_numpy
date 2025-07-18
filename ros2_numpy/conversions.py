@@ -9,7 +9,7 @@ import numpy as np
 
 from rclpy.clock import Clock
 
-from std_msgs.msg import Header
+from std_msgs.msg import Header, ColorRGBA
 from nav_msgs.msg import Path
 from ackermann_msgs.msg import AckermannDriveStamped
 from builtin_interfaces.msg import Time as TimeMsg
@@ -22,6 +22,7 @@ from vision_msgs.msg import (
     Detection2D, Detection2DArray, BoundingBox2D, Pose2D, Point2D
 )
 
+from visualization_msgs.msg import ImageMarker
 
 def get_ros_timestamp(timestamp = None) -> TimeMsg:
     """
